@@ -1,6 +1,24 @@
 # CLAUDE.md — composeguard
 
-Static analyzer for `docker-compose.yml` that flags insecure configurations. Python 3.12 CLI built secure-by-default. The user-facing rule list lives in `BRIEF.md`; treat it as the backlog of rule IDs to implement.
+Static analyzer for `docker-compose.yml` that flags insecure configurations. Python 3.12 CLI built secure-by-default. `BRIEF.md` is the original spec — all of its rules are implemented as of CG001–CG050.
+
+## Implemented rules
+
+| ID | Severity | What it flags |
+|---|---|---|
+| CG001 | critical | `privileged: true` |
+| CG002 | high | `network_mode: host` |
+| CG003 | high | `pid: host` |
+| CG004 | varies | dangerous Linux capabilities in `cap_add` (SYS_ADMIN = critical, NET_ADMIN/SYS_PTRACE/SYS_MODULE = high, etc.) |
+| CG005 | high | `ipc: host` |
+| CG006 | low | missing `security_opt: no-new-privileges:true` |
+| CG007 | low | missing `read_only: true` |
+| CG010 | medium | unpinned image (`:latest` or no digest) |
+| CG020 | critical | `/var/run/docker.sock` mount |
+| CG021 | varies | mount of sensitive host path (`/`, `/etc`, `/root` = critical writable; `/usr`, `/lib`, `/dev`, etc. = high writable; ro lowers severity by one band) |
+| CG030 | medium | secret-looking env var (PASSWORD/SECRET/TOKEN/API_KEY/etc.) with an inline value (vs. `${VAR}` placeholder) |
+| CG040 | medium | port published to all interfaces (no `host_ip` or `0.0.0.0`) |
+| CG050 | low | no memory or CPU limit set |
 
 ## Git workflow
 
@@ -32,7 +50,7 @@ Single-purpose CLI; the core is small.
 src/composeguard/
 ├── cli.py        # argparse, exit-code logic, --fail-on threshold
 ├── analyzer.py   # YAML loading + per-service rule checks; emits Finding objects
-└── checks/       # (placeholder) split rules out as the analyzer grows
+└── checks/       # (placeholder) split rules out once analyzer.py grows past ~15 rules
 ```
 
 `analyzer.analyze_file(path)` is the single entry point used by `cli.main`. It returns `list[Finding]`; each `Finding` has a stable `rule_id` (`CG###`), a `Severity`, a `message`, and a service name. The CLI exits non-zero when any finding meets or exceeds `--fail-on` (default `high`) — this is the contract callers (CI users) depend on, so don't break it without bumping the major version.
