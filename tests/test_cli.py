@@ -7,7 +7,9 @@ from composeguard.cli import main
 
 def test_cli_exits_nonzero_on_critical(tmp_path: Path) -> None:
     p = tmp_path / "compose.yml"
-    p.write_text("services:\n  app:\n    image: nginx@sha256:abc\n    privileged: true\n", encoding="utf-8")
+    p.write_text(
+        "services:\n  app:\n    image: nginx@sha256:abc\n    privileged: true\n", encoding="utf-8"
+    )
     rc = main([str(p)])
     assert rc == 1
 

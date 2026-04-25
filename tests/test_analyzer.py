@@ -128,7 +128,8 @@ def test_pinned_digest_not_flagged_for_image(tmp_path: Path) -> None:
 
 def test_image_with_registry_port_not_misclassified(tmp_path: Path) -> None:
     # Registry port (registry:5000) should not look like a tag.
-    body = "services:\n  app:\n    image: registry.local:5000/nginx@sha256:0000000000000000000000000000000000000000000000000000000000000000\n"
+    digest = "sha256:" + "0" * 64
+    body = f"services:\n  app:\n    image: registry.local:5000/nginx@{digest}\n"
     p = _write(tmp_path, body)
     assert not any(f.rule_id == "CG010" for f in analyze_file(p))
 
@@ -229,10 +230,7 @@ def test_localhost_port_binding_not_flagged(tmp_path: Path) -> None:
 
 def test_long_form_port_with_host_ip_not_flagged(tmp_path: Path) -> None:
     body = HARDENED_SERVICE + (
-        "    ports:\n"
-        "      - target: 80\n"
-        "        published: 8080\n"
-        '        host_ip: "127.0.0.1"\n'
+        '    ports:\n      - target: 80\n        published: 8080\n        host_ip: "127.0.0.1"\n'
     )
     assert not any(f.rule_id == "CG040" for f in analyze_file(_write(tmp_path, body)))
 
