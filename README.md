@@ -47,6 +47,9 @@ composeguard --fail-on medium service-a/compose.yml service-b/compose.yml
 Exit code is non-zero when a finding meets or exceeds `--fail-on`
 (default: `high`), making it suitable for CI gates.
 
+See [`examples/`](examples/) for a side-by-side bad/good homelab stack
+and an annotated walk-through of what the tool flags.
+
 ## Security
 
 This tool parses untrusted YAML. See [SECURITY.md](SECURITY.md) for the

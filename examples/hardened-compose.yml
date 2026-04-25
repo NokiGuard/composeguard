@@ -1,0 +1,58 @@
+# Same workload as insecure-compose.yml, hardened so composeguard finds
+# zero issues. Run: composeguard examples/hardened-compose.yml
+#
+# Note: digests below are placeholders. In a real config, copy the digest
+# from `docker buildx imagetools inspect <image>` or the registry UI.
+
+services:
+  proxy:
+    image: nginx@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.5
+    ports:
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+    # /etc was mounted in the insecure version "to read host config" — that
+    # almost never needs to happen. Removed.
+
+  manager:
+    image: portainer/portainer-ce@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.5
+    ports:
+      - "127.0.0.1:9000:9000"
+    # No docker.sock mount. For multi-host orchestration, deploy the
+    # Portainer Edge agent on the target host instead.
+
+  monitor:
+    image: gcr.io/cadvisor/cadvisor@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.25
+    # cadvisor commonly wants several host paths and SYS_ADMIN. If you
+    # genuinely need them, list each mount explicitly and accept the
+    # CG004/CG021 findings as documented exceptions in CI.
+
+  db:
+    image: postgres@sha256:3333333333333333333333333333333333333333333333333333333333333333
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 0.5
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      API_KEY: ${API_KEY}
+    # The actual values for POSTGRES_PASSWORD / API_KEY come from a .env
+    # file (gitignored) or a secrets manager — never inline.
