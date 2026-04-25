@@ -39,7 +39,9 @@ def main(argv: list[str] | None = None) -> int:
         findings = analyze_file(path)
         total += len(findings)
         for finding in findings:
-            print(f"{finding.severity.value.upper():8} {path}: {finding.rule_id} - {finding.message}")
+            print(
+                f"{finding.severity.value.upper():8} {path}: {finding.rule_id} - {finding.message}"
+            )
             if finding.severity.rank > worst.rank:
                 worst = finding.severity
 

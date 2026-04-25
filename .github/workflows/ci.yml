@@ -50,4 +50,11 @@ jobs:
         run: uv run bandit -r src -c pyproject.toml
 
       - name: Dependency audit (pip-audit)
-        run: uv run pip-audit --strict --disable-pip
+        # Audit only locked runtime deps. Dev tooling (ruff, pytest, pip-audit
+        # itself, …) is covered by Dependabot — and pip-audit transitively
+        # pulls in `pip`, which would otherwise contaminate the audit.
+        run: |
+          uv export --frozen --format requirements-txt \
+            --no-emit-project --no-default-groups --no-hashes \
+            -o runtime-reqs.txt
+          uv run pip-audit --strict -r runtime-reqs.txt

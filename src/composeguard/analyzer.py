@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +11,12 @@ import yaml
 
 MAX_FILE_BYTES = 1 * 1024 * 1024  # 1 MiB hard cap on input size
 
+# Used in the CG040 port-binding check. Stored as a constant with a localized
+# bandit suppression so the rest of the file stays clean.
+_BIND_ALL_INTERFACES = "0.0.0.0"  # nosec B104  # noqa: S104
 
-class Severity(str, Enum):
+
+class Severity(StrEnum):
     INFO = "info"
     LOW = "low"
     MEDIUM = "medium"
@@ -94,14 +98,20 @@ def _check_service(name: str, svc: dict[str, Any]) -> list[Finding]:
 
 def _check_privileged(name: str, svc: dict[str, Any]) -> list[Finding]:
     if svc.get("privileged") is True:
-        return [Finding("CG001", Severity.CRITICAL, "privileged: true grants near-root host access", name)]
+        return [
+            Finding(
+                "CG001", Severity.CRITICAL, "privileged: true grants near-root host access", name
+            )
+        ]
     return []
 
 
 def _check_namespaces(name: str, svc: dict[str, Any]) -> list[Finding]:
     out: list[Finding] = []
     if svc.get("network_mode") == "host":
-        out.append(Finding("CG002", Severity.HIGH, "network_mode: host bypasses network isolation", name))
+        out.append(
+            Finding("CG002", Severity.HIGH, "network_mode: host bypasses network isolation", name)
+        )
     if svc.get("pid") == "host":
         out.append(Finding("CG003", Severity.HIGH, "pid: host shares the host PID namespace", name))
     if svc.get("ipc") == "host":
@@ -191,7 +201,9 @@ def _check_image(name: str, svc: dict[str, Any]) -> list[Finding]:
     if "@sha256:" in image:
         return []
     if image.endswith(":latest") or ":" not in image.rsplit("/", 1)[-1]:
-        return [Finding("CG010", Severity.MEDIUM, f"image {image!r} is unpinned (use a digest)", name)]
+        return [
+            Finding("CG010", Severity.MEDIUM, f"image {image!r} is unpinned (use a digest)", name)
+        ]
     return []
 
 
@@ -243,7 +255,9 @@ def _check_volumes(name: str, svc: dict[str, Any]) -> list[Finding]:
         src, _tgt, mode = _parse_volume(vol)
         if src == "/var/run/docker.sock":
             out.append(
-                Finding("CG020", Severity.CRITICAL, "docker.sock mount enables container escape", name)
+                Finding(
+                    "CG020", Severity.CRITICAL, "docker.sock mount enables container escape", name
+                )
             )
             continue
         if not src or not src.startswith("/"):
@@ -327,12 +341,12 @@ def _check_ports(name: str, svc: dict[str, Any]) -> list[Finding]:
     out: list[Finding] = []
     for p in raw:
         ip = _port_host_ip(p)
-        if ip is None or ip == "0.0.0.0":  # noqa: S104
+        if ip is None or ip == _BIND_ALL_INTERFACES:
             out.append(
                 Finding(
                     "CG040",
                     Severity.MEDIUM,
-                    f"port {p!r} published on all interfaces (prefix with '127.0.0.1:' if local-only)",
+                    f"port {p!r} published on all interfaces (use a '127.0.0.1:' prefix)",
                     name,
                 )
             )
