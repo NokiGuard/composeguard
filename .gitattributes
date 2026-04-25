@@ -1,0 +1,11 @@
+# Default to LF in the repo so curl-piped install.sh works on Linux/macOS
+# regardless of the contributor's platform.
+* text=auto eol=lf
+
+# Shell scripts must be LF — CRLF breaks `#!/usr/bin/env sh`.
+*.sh text eol=lf
+
+# Binary types
+*.png binary
+*.jpg binary
+*.ico binary
