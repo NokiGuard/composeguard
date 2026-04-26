@@ -1,10 +1,14 @@
 # A homelab stack where every service has at least one issue.
-# Run: composeguard examples/insecure-compose.yml
+# Designed to exercise every rule (CG001-CG060). Run:
+#   composeguard examples/insecure-compose.yml
 
 services:
-  # Reverse proxy: unpinned image, sensitive host mount, ports on 0.0.0.0.
+  # Reverse proxy: unpinned image, sensitive host mount, ports on 0.0.0.0,
+  # AppArmor turned off.
   proxy:
     image: nginx:latest
+    security_opt:
+      - apparmor=unconfined
     ports:
       - "80:80"
       - "443:443"
@@ -20,14 +24,23 @@ services:
     ports:
       - "9000:9000"
 
-  # Monitoring agent that wanted host namespaces and SYS_ADMIN.
+  # Monitoring agent that wanted host namespaces, SYS_ADMIN, and an
+  # explicit root user — and skipped cap_drop entirely.
   monitor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
+    user: "0"
+    userns_mode: host
     network_mode: host
     pid: host
     ipc: host
     cap_add:
       - SYS_ADMIN
+
+  # Media server passing a host GPU device into the container.
+  media:
+    image: jellyfin/jellyfin
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
 
   # Database with secrets pasted directly into env.
   db:

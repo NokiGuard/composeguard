@@ -6,14 +6,14 @@
 # that curl-piping is reproducible.
 #
 # Review before running:
-#   curl -fsSL https://raw.githubusercontent.com/NokiGuard/composeguard/v0.1.1/scripts/install.sh -o install.sh
+#   curl -fsSL https://raw.githubusercontent.com/NokiGuard/composeguard/v0.2.0/scripts/install.sh -o install.sh
 #   less install.sh
 #   sh install.sh
 
 set -eu
 
 REPO="${COMPOSEGUARD_REPO:-NokiGuard/composeguard}"
-VERSION="${COMPOSEGUARD_VERSION:-v0.1.1}"
+VERSION="${COMPOSEGUARD_VERSION:-v0.2.0}"
 SOURCE="git+https://github.com/${REPO}.git@${VERSION}"
 
 log() { printf '[composeguard] %s\n' "$1" >&2; }

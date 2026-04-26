@@ -10,21 +10,17 @@ from composeguard.analyzer import Finding, Severity, analyze_file
 
 # ANSI escapes. Stdlib-only on purpose — no `colorama` / `rich` dependency.
 _RESET = "\033[0m"
-_DIM = "\033[2m"
 _BOLD = "\033[1m"
-_RED = "\033[31m"
 _YELLOW = "\033[33m"
 _GREY = "\033[90m"
 _BRIGHT_RED = "\033[91m"
 
-# Severity → ANSI prefix. Roughly mirrors Grype's palette: critical = bold
-# bright-red, high = red, medium = yellow, low = grey, info = dim.
+# Severity → ANSI prefix. Roughly mirrors Grype's palette: high = bold red,
+# medium = yellow, low = grey.
 _SEVERITY_COLOR: dict[Severity, str] = {
-    Severity.CRITICAL: _BOLD + _BRIGHT_RED,
-    Severity.HIGH: _RED,
+    Severity.HIGH: _BOLD + _BRIGHT_RED,
     Severity.MEDIUM: _YELLOW,
     Severity.LOW: _GREY,
-    Severity.INFO: _DIM,
 }
 
 
@@ -80,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     threshold = Severity(args.fail_on)
     use_color = _supports_color(args.color)
 
-    worst = Severity.INFO
+    worst = Severity.LOW
     total = 0
     for path in args.files:
         findings = analyze_file(path)

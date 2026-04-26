@@ -40,4 +40,4 @@ def test_color_never_emits_no_ansi(tmp_path: Path, capsys: pytest.CaptureFixture
     main([str(p), "--color", "never"])
     out = capsys.readouterr().out
     assert "\033[" not in out
-    assert "CRITICAL" in out
+    assert "HIGH" in out

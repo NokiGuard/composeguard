@@ -6,15 +6,23 @@ GitHub and forums and rarely audit them.
 
 ## What it catches
 
-- `privileged: true` and dangerous capabilities
+18 rules across the most common docker-compose security issues:
+
+- `privileged: true`, dangerous capabilities, and `cap_add` without `cap_drop: [ALL]`
 - Docker socket mounts (`/var/run/docker.sock`) — container escape risk
-- Host network / PID / IPC namespaces
-- Missing `read_only`, missing `no-new-privileges`
+- Host network / PID / IPC namespaces, and `userns_mode: host`
+- Explicit `user: root` / `user: "0"`
+- Host devices passed into containers (`/dev/...`)
+- AppArmor or seccomp disabled via `security_opt`
+- Missing `read_only`, missing `no-new-privileges:true`
 - Unpinned images (`:latest`, no digest)
-- Secrets in environment variables
-- Exposed ports on `0.0.0.0` when a reverse proxy is present
+- Secrets pasted inline in environment variables
+- Ports published on all interfaces (no `host_ip` / `0.0.0.0`)
 - Missing CPU/memory limits
-- Writable mounts of sensitive host paths (`/etc`, `/`, `/root`)
+- Writable mounts of sensitive host paths (`/`, `/etc`, `/root`, kernel/system surfaces)
+
+Three severity levels (`high`, `medium`, `low`); see [`CLAUDE.md`](CLAUDE.md) for
+the rule-by-rule severity table.
 
 ## Install
 
@@ -40,15 +48,15 @@ Pick **one** of these:
 
 ```bash
 # A. Curl install script (review first, then run):
-curl -fsSL https://raw.githubusercontent.com/NokiGuard/composeguard/v0.1.1/scripts/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/NokiGuard/composeguard/v0.2.0/scripts/install.sh -o install.sh
 less install.sh
 sh install.sh
 
 # B. Direct via uv:
-uv tool install "git+https://github.com/NokiGuard/composeguard.git@v0.1.1"
+uv tool install "git+https://github.com/NokiGuard/composeguard.git@v0.2.0"
 
 # C. Direct via pipx:
-pipx install "git+https://github.com/NokiGuard/composeguard.git@v0.1.1"
+pipx install "git+https://github.com/NokiGuard/composeguard.git@v0.2.0"
 ```
 
 All three install the same thing. The script just picks `uv` if

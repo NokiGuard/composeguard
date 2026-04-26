@@ -17,11 +17,9 @@ _BIND_ALL_INTERFACES = "0.0.0.0"  # nosec B104  # noqa: S104
 
 
 class Severity(StrEnum):
-    INFO = "info"
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
-    CRITICAL = "critical"
 
     @property
     def rank(self) -> int:
@@ -29,11 +27,9 @@ class Severity(StrEnum):
 
 
 _SEVERITY_RANK = {
-    Severity.INFO: 0,
-    Severity.LOW: 1,
-    Severity.MEDIUM: 2,
-    Severity.HIGH: 3,
-    Severity.CRITICAL: 4,
+    Severity.LOW: 0,
+    Severity.MEDIUM: 1,
+    Severity.HIGH: 2,
 }
 
 
@@ -83,13 +79,18 @@ def _check_service(name: str, svc: dict[str, Any]) -> list[Finding]:
     out.extend(_check_privileged(name, svc))
     out.extend(_check_namespaces(name, svc))
     out.extend(_check_capabilities(name, svc))
+    out.extend(_check_cap_drop(name, svc))
     out.extend(_check_no_new_privs(name, svc))
     out.extend(_check_read_only(name, svc))
+    out.extend(_check_user(name, svc))
+    out.extend(_check_userns(name, svc))
     out.extend(_check_image(name, svc))
     out.extend(_check_volumes(name, svc))
+    out.extend(_check_devices(name, svc))
     out.extend(_check_env_secrets(name, svc))
     out.extend(_check_ports(name, svc))
     out.extend(_check_resource_limits(name, svc))
+    out.extend(_check_security_opt_unconfined(name, svc))
     return out
 
 
@@ -99,9 +100,7 @@ def _check_service(name: str, svc: dict[str, Any]) -> list[Finding]:
 def _check_privileged(name: str, svc: dict[str, Any]) -> list[Finding]:
     if svc.get("privileged") is True:
         return [
-            Finding(
-                "CG001", Severity.CRITICAL, "privileged: true grants near-root host access", name
-            )
+            Finding("CG001", Severity.HIGH, "privileged: true grants near-root host access", name)
         ]
     return []
 
@@ -119,13 +118,15 @@ def _check_namespaces(name: str, svc: dict[str, Any]) -> list[Finding]:
     return out
 
 
-# --- CG004: dangerous Linux capabilities ------------------------------------
+# --- CG004 / CG011: dangerous Linux capabilities ----------------------------
 
 # Severity for caps in cap_add. Anything not listed is ignored (low risk caps
 # like NET_BIND_SERVICE, CHOWN — common and usually fine).
 _CAP_SEVERITY: dict[str, Severity] = {
-    "SYS_ADMIN": Severity.CRITICAL,  # near-root
-    "ALL": Severity.CRITICAL,
+    # Effectively root.
+    "SYS_ADMIN": Severity.HIGH,
+    "ALL": Severity.HIGH,
+    # Powerful subsystem caps.
     "NET_ADMIN": Severity.HIGH,
     "SYS_PTRACE": Severity.HIGH,
     "SYS_MODULE": Severity.HIGH,
@@ -133,6 +134,7 @@ _CAP_SEVERITY: dict[str, Severity] = {
     "SYS_BOOT": Severity.HIGH,
     "MAC_ADMIN": Severity.HIGH,
     "MAC_OVERRIDE": Severity.HIGH,
+    # Notable but narrower.
     "SYS_TIME": Severity.MEDIUM,
     "DAC_READ_SEARCH": Severity.MEDIUM,
     "DAC_OVERRIDE": Severity.MEDIUM,
@@ -154,6 +156,26 @@ def _check_capabilities(name: str, svc: dict[str, Any]) -> list[Finding]:
         if sev is not None:
             out.append(Finding("CG004", sev, f"cap_add: {c!r} grants a powerful capability", name))
     return out
+
+
+def _check_cap_drop(name: str, svc: dict[str, Any]) -> list[Finding]:
+    """Defense-in-depth: when cap_add is used, expect cap_drop: [ALL]."""
+    cap_add = svc.get("cap_add") or []
+    if not isinstance(cap_add, list) or not cap_add:
+        return []
+    cap_drop = svc.get("cap_drop") or []
+    if isinstance(cap_drop, list):
+        dropped = {str(c).upper().removeprefix("CAP_") for c in cap_drop if isinstance(c, str)}
+        if "ALL" in dropped:
+            return []
+    return [
+        Finding(
+            "CG011",
+            Severity.LOW,
+            "cap_add is used without cap_drop: [ALL] (defense-in-depth)",
+            name,
+        )
+    ]
 
 
 # --- CG006 / CG007: hardening flags missing ---------------------------------
@@ -191,6 +213,41 @@ def _check_read_only(name: str, svc: dict[str, Any]) -> list[Finding]:
     return [Finding("CG007", Severity.LOW, "read_only filesystem not enabled", name)]
 
 
+# --- CG008 / CG009: identity & user namespace ------------------------------
+
+
+def _check_user(name: str, svc: dict[str, Any]) -> list[Finding]:
+    """Flag explicit `user: root` / `user: 0` / `user: 0:0`."""
+    user = svc.get("user")
+    if user is None:
+        return []
+    user_str = str(user).strip()
+    uid = user_str.split(":", 1)[0]
+    if uid in {"root", "0"}:
+        return [
+            Finding(
+                "CG008",
+                Severity.HIGH,
+                f"user is set to root ({user_str!r}) — drop privileges with a non-zero UID",
+                name,
+            )
+        ]
+    return []
+
+
+def _check_userns(name: str, svc: dict[str, Any]) -> list[Finding]:
+    if svc.get("userns_mode") == "host":
+        return [
+            Finding(
+                "CG009",
+                Severity.HIGH,
+                "userns_mode: host disables user-namespace remapping (UID 0 maps to host root)",
+                name,
+            )
+        ]
+    return []
+
+
 # --- CG010: image pinning ---------------------------------------------------
 
 
@@ -211,9 +268,11 @@ def _check_image(name: str, svc: dict[str, Any]) -> list[Finding]:
 
 # Sensitive host paths. Tuple is (rw_severity, ro_severity).
 _SENSITIVE_PATHS: dict[str, tuple[Severity, Severity]] = {
-    "/": (Severity.CRITICAL, Severity.HIGH),
-    "/etc": (Severity.CRITICAL, Severity.HIGH),
-    "/root": (Severity.CRITICAL, Severity.HIGH),
+    # rw or ro of these can leak/clobber host identity files.
+    "/": (Severity.HIGH, Severity.HIGH),
+    "/etc": (Severity.HIGH, Severity.HIGH),
+    "/root": (Severity.HIGH, Severity.HIGH),
+    # Kernel/system surfaces — rw is dangerous, ro is concerning.
     "/boot": (Severity.HIGH, Severity.MEDIUM),
     "/sys": (Severity.HIGH, Severity.MEDIUM),
     "/proc": (Severity.HIGH, Severity.MEDIUM),
@@ -223,6 +282,7 @@ _SENSITIVE_PATHS: dict[str, tuple[Severity, Severity]] = {
     "/lib64": (Severity.HIGH, Severity.MEDIUM),
     "/sbin": (Severity.HIGH, Severity.MEDIUM),
     "/bin": (Severity.HIGH, Severity.MEDIUM),
+    # User data — broad impact, lower per-mount risk.
     "/var": (Severity.MEDIUM, Severity.LOW),
     "/home": (Severity.MEDIUM, Severity.LOW),
 }
@@ -255,9 +315,7 @@ def _check_volumes(name: str, svc: dict[str, Any]) -> list[Finding]:
         src, _tgt, mode = _parse_volume(vol)
         if src == "/var/run/docker.sock":
             out.append(
-                Finding(
-                    "CG020", Severity.CRITICAL, "docker.sock mount enables container escape", name
-                )
+                Finding("CG020", Severity.HIGH, "docker.sock mount enables container escape", name)
             )
             continue
         if not src or not src.startswith("/"):
@@ -276,6 +334,33 @@ def _check_volumes(name: str, svc: dict[str, Any]) -> list[Finding]:
                     )
                 )
                 break
+    return out
+
+
+# --- CG022: device passthrough ----------------------------------------------
+
+
+def _check_devices(name: str, svc: dict[str, Any]) -> list[Finding]:
+    raw = svc.get("devices") or []
+    if not isinstance(raw, list):
+        return []
+    out: list[Finding] = []
+    for dev in raw:
+        host_dev: str | None = None
+        if isinstance(dev, str):
+            host_dev = dev.split(":", 1)[0].strip() or None
+        elif isinstance(dev, dict):
+            src = dev.get("source")
+            host_dev = src if isinstance(src, str) else None
+        if host_dev and host_dev.startswith("/dev/"):
+            out.append(
+                Finding(
+                    "CG022",
+                    Severity.HIGH,
+                    f"host device {host_dev!r} passed into container — kernel surface exposure",
+                    name,
+                )
+            )
     return out
 
 
@@ -374,3 +459,33 @@ def _check_resource_limits(name: str, svc: dict[str, Any]) -> list[Finding]:
             name,
         )
     ]
+
+
+# --- CG060: AppArmor / seccomp disabled -------------------------------------
+
+
+def _check_security_opt_unconfined(name: str, svc: dict[str, Any]) -> list[Finding]:
+    """Flag security_opt: ['apparmor=unconfined'] or ['seccomp=unconfined']."""
+    opts = svc.get("security_opt") or []
+    if not isinstance(opts, list):
+        return []
+    out: list[Finding] = []
+    for o in opts:
+        if not isinstance(o, str):
+            continue
+        # Compose accepts both 'key=value' and 'key:value'. Normalize.
+        normalized = o.strip().replace("=", ":").lower()
+        if normalized == "apparmor:unconfined":
+            out.append(
+                Finding("CG060", Severity.HIGH, f"security_opt disables AppArmor ({o!r})", name)
+            )
+        elif normalized == "seccomp:unconfined":
+            out.append(
+                Finding(
+                    "CG060",
+                    Severity.HIGH,
+                    f"security_opt disables the seccomp filter ({o!r})",
+                    name,
+                )
+            )
+    return out
