@@ -16,6 +16,15 @@ def test_cli_exits_nonzero_on_critical(tmp_path: Path) -> None:
     assert rc == 1
 
 
+def test_fail_on_critical_ignores_high(tmp_path: Path) -> None:
+    """A high finding must not trip the gate when --fail-on is critical."""
+    p = tmp_path / "compose.yml"
+    p.write_text(
+        "services:\n  app:\n    image: nginx@sha256:abc\n    ipc: host\n", encoding="utf-8"
+    )
+    assert main([str(p), "--fail-on", "critical"]) == 0
+
+
 def test_cli_exits_zero_on_clean(tmp_path: Path) -> None:
     p = tmp_path / "compose.yml"
     p.write_text("services:\n  app:\n    image: nginx@sha256:abc\n", encoding="utf-8")

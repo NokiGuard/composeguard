@@ -20,6 +20,7 @@ class Severity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    CRITICAL = "critical"
 
     @property
     def rank(self) -> int:
@@ -30,6 +31,7 @@ _SEVERITY_RANK = {
     Severity.LOW: 0,
     Severity.MEDIUM: 1,
     Severity.HIGH: 2,
+    Severity.CRITICAL: 3,
 }
 
 
