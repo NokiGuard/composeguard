@@ -5,26 +5,8 @@ from pathlib import Path
 import pytest
 
 from composeguard.analyzer import MAX_FILE_BYTES, Severity, analyze_file
-
-# A baseline "fully hardened" service — useful so each rule test can layer
-# one insecure setting on top without tripping CG006/CG007/CG050.
-HARDENED_SERVICE = """\
-services:
-  app:
-    image: nginx@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    mem_limit: 256m
-    cpus: 0.5
-"""
-
-
-def _write(tmp_path: Path, body: str) -> Path:
-    p = tmp_path / "compose.yml"
-    p.write_text(body, encoding="utf-8")
-    return p
-
+from tests.helpers import HARDENED_SERVICE
+from tests.helpers import write_compose as _write
 
 # --- baseline ---------------------------------------------------------------
 
@@ -39,7 +21,7 @@ def test_hardened_baseline_is_clean(tmp_path: Path) -> None:
 def test_flags_privileged(tmp_path: Path) -> None:
     p = _write(tmp_path, HARDENED_SERVICE + "    privileged: true\n")
     findings = analyze_file(p)
-    assert any(f.rule_id == "CG001" and f.severity is Severity.HIGH for f in findings)
+    assert any(f.rule_id == "CG001" and f.severity is Severity.CRITICAL for f in findings)
 
 
 def test_flags_host_network(tmp_path: Path) -> None:
@@ -60,12 +42,12 @@ def test_flags_host_ipc(tmp_path: Path) -> None:
 # --- CG004: capabilities ---------------------------------------------------
 
 
-def test_flags_sys_admin_capability_as_high(tmp_path: Path) -> None:
+def test_flags_sys_admin_capability_as_critical(tmp_path: Path) -> None:
     p = _write(
         tmp_path, HARDENED_SERVICE + "    cap_add:\n      - SYS_ADMIN\n    cap_drop:\n      - ALL\n"
     )
     findings = [f for f in analyze_file(p) if f.rule_id == "CG004"]
-    assert any(f.severity is Severity.HIGH for f in findings)
+    assert any(f.severity is Severity.CRITICAL for f in findings)
 
 
 def test_flags_sys_time_capability_as_medium(tmp_path: Path) -> None:
