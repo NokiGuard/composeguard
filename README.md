@@ -51,15 +51,15 @@ Pick **one** of these:
 
 ```bash
 # A. Curl install script (review first, then run):
-curl -fsSL https://raw.githubusercontent.com/NokiGuard/composeguard/v0.2.0/scripts/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/NokiGuard/composeguard/v0.3.0/scripts/install.sh -o install.sh
 less install.sh
 sh install.sh
 
 # B. Direct via uv:
-uv tool install "git+https://github.com/NokiGuard/composeguard.git@v0.2.0"
+uv tool install "git+https://github.com/NokiGuard/composeguard.git@v0.3.0"
 
 # C. Direct via pipx:
-pipx install "git+https://github.com/NokiGuard/composeguard.git@v0.2.0"
+pipx install "git+https://github.com/NokiGuard/composeguard.git@v0.3.0"
 ```
 
 All three install the same thing. The script just picks `uv` if

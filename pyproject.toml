@@ -1,6 +1,6 @@
 [project]
 name = "composeguard"
-version = "0.2.0"
+version = "0.3.0"
 description = "Static analyzer for docker-compose.yml that flags insecure configurations before deployment."
 readme = "README.md"
 requires-python = ">=3.12"
