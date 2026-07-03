@@ -28,7 +28,8 @@ services:
     ports:
       - "127.0.0.1:9000:9000"
     # No docker.sock mount. For multi-host orchestration, deploy the
-    # Portainer Edge agent on the target host instead.
+    # Portainer Edge agent on the target host instead. `cgroup:` is simply
+    # left unset — the default is a private cgroup namespace.
 
   monitor:
     image: gcr.io/cadvisor/cadvisor@sha256:2222222222222222222222222222222222222222222222222222222222222222
@@ -39,7 +40,25 @@ services:
     cpus: 0.25
     # cadvisor commonly wants several host paths and SYS_ADMIN. If you
     # genuinely need them, list each mount explicitly and accept the
-    # CG004/CG021 findings as documented exceptions in CI.
+    # CG004/CG021 findings as documented exceptions in CI. The insecure
+    # version's `uts: host` and relaxed sysctls are simply dropped — the
+    # defaults are already correct.
+
+  media:
+    image: jellyfin/jellyfin@sha256:4444444444444444444444444444444444444444444444444444444444444444
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    cpus: 2.0
+    ports:
+      - "127.0.0.1:8096:8096"
+    # For hardware transcoding, add:
+    #   devices:
+    #     - /dev/dri:/dev/dri
+    # GPU passthrough surfaces as a LOW finding (CG022) — it does not fail
+    # the default CI gate, so keep it if you need it; omitted here so this
+    # file demonstrates a zero-finding baseline.
 
   db:
     image: postgres@sha256:3333333333333333333333333333333333333333333333333333333333333333
@@ -54,5 +73,23 @@ services:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       API_KEY: ${API_KEY}
-    # The actual values for POSTGRES_PASSWORD / API_KEY come from a .env
-    # file (gitignored) or a secrets manager — never inline.
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+    # The actual values come from a .env file (gitignored) or a secrets
+    # manager — never inline. `oom_kill_disable`, `logging.driver: none`,
+    # and `device_cgroup_rules` from the insecure version are dropped: the
+    # defaults (OOM killer on, json-file logging, default device cgroup)
+    # are the safe ones.
+
+  ci:
+    build:
+      context: ./ci
+      # No secrets in build args — they persist in image layers. Use
+      # BuildKit secret mounts in the Dockerfile instead:
+      #   RUN --mount=type=secret,id=npm_token npm install
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    # SELinux stays enabled (no label=disable), and the service keeps its
+    # own network namespace instead of joining the db's.

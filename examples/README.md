@@ -103,7 +103,14 @@ don't fail the run, but they show up as a punch list.
 0 finding(s) across 1 file(s).
 ```
 
-Exit code `0`. Same workload, same services, all rules satisfied.
+Exit code `0`. Same workload, same six services, all rules satisfied. Each
+service carries a comment explaining what was removed relative to the
+insecure version and what to do instead (Edge agent instead of docker.sock,
+BuildKit secret mounts instead of build args, `${VAR}` references instead
+of inline secrets). The `media` service shows the one deliberate tradeoff:
+GPU passthrough is commented out to keep the zero-finding baseline, with a
+note that enabling it only costs a LOW finding that won't fail the default
+gate.
 
 ## Use it as a CI gate
 
