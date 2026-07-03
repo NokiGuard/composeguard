@@ -1,0 +1,15 @@
+# Gitleaks config. Extends the default ruleset; the allowlist below covers
+# the deliberately fake, token-shaped strings used as test fixtures for the
+# CG031/CG032 secret-shape rules (tests/test_checks.py and examples/).
+# They are synthetic alphabet sequences, not real credentials — do NOT
+# allowlist anything here that wasn't crafted as a fixture.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic CG031/CG032 token-shape fixtures"
+regexes = [
+    '''ghp_abcdefghijklmnopqrstuv[0-9]*''',
+    '''glpat-abcdefghijklmnopqrst''',
+]
