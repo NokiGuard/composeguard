@@ -12,7 +12,12 @@ from composeguard.models import CheckFn, Finding, Severity
 def _check_privileged(name: str, svc: dict[str, Any]) -> list[Finding]:
     if svc.get("privileged") is True:
         return [
-            Finding("CG001", Severity.HIGH, "privileged: true grants near-root host access", name)
+            Finding(
+                "CG001",
+                Severity.CRITICAL,
+                "privileged: true disables all isolation — trivial full host compromise",
+                name,
+            )
         ]
     return []
 
@@ -32,26 +37,39 @@ def _check_namespaces(name: str, svc: dict[str, Any]) -> list[Finding]:
 
 # --- CG004 / CG011: dangerous Linux capabilities ----------------------------
 
-# Severity for caps in cap_add. Anything not listed is ignored (low risk caps
-# like NET_BIND_SERVICE, CHOWN — common and usually fine).
+# Severity for caps in cap_add, graded by how directly the cap converts to
+# host compromise. Anything not listed is ignored (low risk caps like
+# NET_BIND_SERVICE, CHOWN — common and usually fine).
 _CAP_SEVERITY: dict[str, Severity] = {
-    # Effectively root.
-    "SYS_ADMIN": Severity.HIGH,
-    "ALL": Severity.HIGH,
-    # Powerful subsystem caps.
+    # Effectively root on the host: SYS_ADMIN is the kitchen-sink cap; ALL
+    # includes it; SYS_MODULE loads arbitrary kernel code.
+    "SYS_ADMIN": Severity.CRITICAL,
+    "ALL": Severity.CRITICAL,
+    "SYS_MODULE": Severity.CRITICAL,
+    # Powerful subsystem caps with known escape or takeover paths.
     "NET_ADMIN": Severity.HIGH,
     "SYS_PTRACE": Severity.HIGH,
-    "SYS_MODULE": Severity.HIGH,
     "SYS_RAWIO": Severity.HIGH,
     "SYS_BOOT": Severity.HIGH,
     "MAC_ADMIN": Severity.HIGH,
     "MAC_OVERRIDE": Severity.HIGH,
+    # DAC_READ_SEARCH enables the classic open_by_handle_at host-file-read
+    # escape ("shocker"); BPF allows loading eBPF programs (kernel surface).
+    "DAC_READ_SEARCH": Severity.HIGH,
+    "BPF": Severity.HIGH,
     # Notable but narrower.
     "SYS_TIME": Severity.MEDIUM,
-    "DAC_READ_SEARCH": Severity.MEDIUM,
     "DAC_OVERRIDE": Severity.MEDIUM,
     "AUDIT_CONTROL": Severity.MEDIUM,
     "AUDIT_WRITE": Severity.MEDIUM,
+    "PERFMON": Severity.MEDIUM,
+    "SYS_CHROOT": Severity.MEDIUM,
+    "SETUID": Severity.MEDIUM,
+    "SETGID": Severity.MEDIUM,
+    "NET_RAW": Severity.MEDIUM,
+    "CHECKPOINT_RESTORE": Severity.MEDIUM,
+    # Info-leak only (kernel log exposes pointers).
+    "SYSLOG": Severity.LOW,
 }
 
 
