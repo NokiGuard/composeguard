@@ -14,10 +14,12 @@ _BOLD = "\033[1m"
 _YELLOW = "\033[33m"
 _GREY = "\033[90m"
 _BRIGHT_RED = "\033[91m"
+_BRIGHT_MAGENTA = "\033[95m"
 
-# Severity → ANSI prefix. Roughly mirrors Grype's palette: high = bold red,
-# medium = yellow, low = grey.
+# Severity → ANSI prefix. Roughly mirrors Grype's palette: critical = bold
+# magenta, high = bold red, medium = yellow, low = grey.
 _SEVERITY_COLOR: dict[Severity, str] = {
+    Severity.CRITICAL: _BOLD + _BRIGHT_MAGENTA,
     Severity.HIGH: _BOLD + _BRIGHT_RED,
     Severity.MEDIUM: _YELLOW,
     Severity.LOW: _GREY,
