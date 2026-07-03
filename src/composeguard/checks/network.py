@@ -8,7 +8,8 @@ from composeguard.models import CheckFn, Finding, Severity
 
 # Used in the CG040 port-binding check. Stored as a constant with a localized
 # bandit suppression so the rest of the file stays clean.
-_BIND_ALL_INTERFACES = "0.0.0.0"  # nosec B104  # noqa: S104
+_BIND_ALL_V4 = "0.0.0.0"  # nosec B104  # noqa: S104
+_BIND_ALL = {_BIND_ALL_V4, "::"}  # IPv4 and IPv6 all-interfaces binds
 
 # --- CG040: port binding ----------------------------------------------------
 
@@ -16,13 +17,15 @@ _BIND_ALL_INTERFACES = "0.0.0.0"  # nosec B104  # noqa: S104
 def _port_host_ip(port: object) -> str | None:
     """Return host_ip for a port spec, or None if unspecified (= 0.0.0.0)."""
     if isinstance(port, str):
-        parts = port.split(":")
+        # rsplit so IPv6 hosts survive: ':::8080:80' -> '::', '[::1]:8080:80'
+        # -> '[::1]'. The last two segments are always host-port:container-port.
+        parts = port.rsplit(":", 2)
         if len(parts) == 3:
-            return parts[0]
+            return parts[0].strip("[]")
         return None
     if isinstance(port, dict):
         ip = port.get("host_ip")
-        return ip if isinstance(ip, str) else None
+        return ip.strip("[]") if isinstance(ip, str) else None
     return None
 
 
@@ -33,7 +36,7 @@ def _check_ports(name: str, svc: dict[str, Any]) -> list[Finding]:
     out: list[Finding] = []
     for p in raw:
         ip = _port_host_ip(p)
-        if ip is None or ip == _BIND_ALL_INTERFACES:
+        if ip is None or ip in _BIND_ALL:
             out.append(
                 Finding(
                     "CG040",

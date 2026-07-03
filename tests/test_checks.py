@@ -270,3 +270,63 @@ def test_build_string_form_clean(tmp_path: Path) -> None:
 def test_build_arg_placeholder_clean(tmp_path: Path) -> None:
     snippet = "    build:\n      context: .\n      args:\n        API_KEY: ${API_KEY}\n"
     assert not _findings(tmp_path, snippet, "CG032")
+
+
+# --- CG040: IPv6 all-interfaces binds ---------------------------------------------
+
+
+def test_ipv6_all_interfaces_short_form_flagged(tmp_path: Path) -> None:
+    assert _findings(tmp_path, '    ports:\n      - ":::8080:80"\n', "CG040")
+
+
+def test_ipv6_all_interfaces_long_form_flagged(tmp_path: Path) -> None:
+    snippet = '    ports:\n      - target: 80\n        published: 8080\n        host_ip: "::"\n'
+    assert _findings(tmp_path, snippet, "CG040")
+
+
+def test_ipv6_loopback_not_flagged(tmp_path: Path) -> None:
+    assert not _findings(tmp_path, '    ports:\n      - "[::1]:8080:80"\n', "CG040")
+
+
+# --- CG070 / CG071 / CG072: shared namespaces ------------------------------------
+
+
+def test_cgroup_host_is_high(tmp_path: Path) -> None:
+    findings = _findings(tmp_path, "    cgroup: host\n", "CG070")
+    assert findings and findings[0].severity is Severity.HIGH
+
+
+def test_uts_host_is_medium(tmp_path: Path) -> None:
+    findings = _findings(tmp_path, "    uts: host\n", "CG071")
+    assert findings and findings[0].severity is Severity.MEDIUM
+
+
+def test_network_mode_service_sharing_flagged(tmp_path: Path) -> None:
+    assert _findings(tmp_path, '    network_mode: "service:db"\n', "CG072")
+
+
+def test_pid_container_sharing_flagged(tmp_path: Path) -> None:
+    assert _findings(tmp_path, '    pid: "container:abc"\n', "CG072")
+
+
+def test_private_cgroup_clean(tmp_path: Path) -> None:
+    assert not _findings(tmp_path, "    cgroup: private\n", "CG070")
+
+
+# --- CG073: dangerous sysctls -----------------------------------------------------
+
+
+def test_unprivileged_port_start_zero_flagged(tmp_path: Path) -> None:
+    snippet = "    sysctls:\n      net.ipv4.ip_unprivileged_port_start: 0\n"
+    findings = _findings(tmp_path, snippet, "CG073")
+    assert findings and findings[0].severity is Severity.LOW
+
+
+def test_ip_forward_list_form_flagged(tmp_path: Path) -> None:
+    snippet = '    sysctls:\n      - "net.ipv4.ip_forward=1"\n'
+    assert _findings(tmp_path, snippet, "CG073")
+
+
+def test_benign_sysctl_not_flagged(tmp_path: Path) -> None:
+    snippet = "    sysctls:\n      net.core.somaxconn: 1024\n"
+    assert not _findings(tmp_path, snippet, "CG073")

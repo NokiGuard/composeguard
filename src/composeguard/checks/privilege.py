@@ -178,6 +178,92 @@ def _check_userns(name: str, svc: dict[str, Any]) -> list[Finding]:
     return []
 
 
+# --- CG070 / CG071 / CG072: more shared namespaces (overflow band) ----------
+
+
+def _check_cgroup(name: str, svc: dict[str, Any]) -> list[Finding]:
+    if svc.get("cgroup") == "host":
+        return [
+            Finding(
+                "CG070",
+                Severity.HIGH,
+                "cgroup: host joins the host cgroup namespace (resource controls exposed)",
+                name,
+            )
+        ]
+    return []
+
+
+def _check_uts(name: str, svc: dict[str, Any]) -> list[Finding]:
+    if svc.get("uts") == "host":
+        return [
+            Finding(
+                "CG071",
+                Severity.MEDIUM,
+                "uts: host shares the host UTS namespace (hostname/domain writable)",
+                name,
+            )
+        ]
+    return []
+
+
+def _check_container_namespace_sharing(name: str, svc: dict[str, Any]) -> list[Finding]:
+    """Flag network_mode / pid joined to another container's namespace."""
+    out: list[Finding] = []
+    for field in ("network_mode", "pid"):
+        value = svc.get(field)
+        if isinstance(value, str) and value.startswith(("container:", "service:")):
+            out.append(
+                Finding(
+                    "CG072",
+                    Severity.MEDIUM,
+                    f"{field}: {value!r} shares another container's namespace "
+                    "(lateral movement between services)",
+                    name,
+                )
+            )
+    return out
+
+
+# --- CG073: dangerous sysctls -------------------------------------------------
+
+# Docker only accepts namespaced sysctls (net.*, IPC kernel.msg*/sem/shm*,
+# fs.mqueue.*), so escape-relevant kernel.* keys can never appear in a working
+# compose file. The flaggable set is deliberately tiny.
+_DANGEROUS_SYSCTLS: dict[str, str] = {
+    "net.ipv4.ip_unprivileged_port_start": "0",
+    "net.ipv4.ip_forward": "1",
+}
+
+
+def _iter_sysctls(sysctls: object) -> list[tuple[str, str]]:
+    if isinstance(sysctls, list):
+        return [
+            tuple(item.split("=", 1))  # type: ignore[misc]
+            for item in sysctls
+            if isinstance(item, str) and "=" in item
+        ]
+    if isinstance(sysctls, dict):
+        return [(str(k), str(v)) for k, v in sysctls.items()]
+    return []
+
+
+def _check_sysctls(name: str, svc: dict[str, Any]) -> list[Finding]:
+    out: list[Finding] = []
+    for key, value in _iter_sysctls(svc.get("sysctls")):
+        k, v = key.strip(), value.strip()
+        if _DANGEROUS_SYSCTLS.get(k) == v:
+            out.append(
+                Finding(
+                    "CG073",
+                    Severity.LOW,
+                    f"sysctl {k}={v} weakens network hardening",
+                    name,
+                )
+            )
+    return out
+
+
 CHECKS: tuple[CheckFn, ...] = (
     _check_privileged,
     _check_namespaces,
@@ -187,4 +273,8 @@ CHECKS: tuple[CheckFn, ...] = (
     _check_read_only,
     _check_user,
     _check_userns,
+    _check_cgroup,
+    _check_uts,
+    _check_container_namespace_sharing,
+    _check_sysctls,
 )
