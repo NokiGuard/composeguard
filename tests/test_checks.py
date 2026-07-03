@@ -330,3 +330,55 @@ def test_ip_forward_list_form_flagged(tmp_path: Path) -> None:
 def test_benign_sysctl_not_flagged(tmp_path: Path) -> None:
     snippet = "    sysctls:\n      net.core.somaxconn: 1024\n"
     assert not _findings(tmp_path, snippet, "CG073")
+
+
+# --- CG051 / CG052: availability hygiene -------------------------------------------
+
+
+def test_oom_kill_disable_flagged(tmp_path: Path) -> None:
+    findings = _findings(tmp_path, "    oom_kill_disable: true\n", "CG051")
+    assert findings and findings[0].severity is Severity.LOW
+
+
+def test_oom_kill_disable_false_clean(tmp_path: Path) -> None:
+    assert not _findings(tmp_path, "    oom_kill_disable: false\n", "CG051")
+
+
+def test_logging_driver_none_flagged(tmp_path: Path) -> None:
+    findings = _findings(tmp_path, "    logging:\n      driver: none\n", "CG052")
+    assert findings and findings[0].severity is Severity.LOW
+
+
+def test_logging_json_file_clean(tmp_path: Path) -> None:
+    assert not _findings(tmp_path, "    logging:\n      driver: json-file\n", "CG052")
+
+
+# --- CG061: SELinux disabled --------------------------------------------------------
+
+
+def test_selinux_label_disable_colon_form_is_high(tmp_path: Path) -> None:
+    snippet = HARDENED_SERVICE.replace(
+        "      - no-new-privileges:true\n",
+        "      - no-new-privileges:true\n      - label:disable\n",
+    )
+    p = _write(tmp_path, snippet)
+    findings = [f for f in analyze_file(p) if f.rule_id == "CG061"]
+    assert findings and findings[0].severity is Severity.HIGH
+
+
+def test_selinux_label_disable_equals_form_flagged(tmp_path: Path) -> None:
+    snippet = HARDENED_SERVICE.replace(
+        "      - no-new-privileges:true\n",
+        "      - no-new-privileges:true\n      - label=disable\n",
+    )
+    p = _write(tmp_path, snippet)
+    assert any(f.rule_id == "CG061" for f in analyze_file(p))
+
+
+def test_selinux_custom_label_not_flagged(tmp_path: Path) -> None:
+    snippet = HARDENED_SERVICE.replace(
+        "      - no-new-privileges:true\n",
+        "      - no-new-privileges:true\n      - label:type:svirt_apache_t\n",
+    )
+    p = _write(tmp_path, snippet)
+    assert not any(f.rule_id == "CG061" for f in analyze_file(p))
