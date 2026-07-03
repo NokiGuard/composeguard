@@ -1,19 +1,21 @@
 # CLAUDE.md — composeguard
 
-Static analyzer for `docker-compose.yml` that flags insecure configurations. Python 3.12 CLI built secure-by-default. `BRIEF.md` is the original spec — all of its rules are implemented as of CG001–CG060, plus five additional checks beyond the brief.
+Static analyzer for `docker-compose.yml` that flags insecure configurations. Python 3.12 CLI built secure-by-default. `BRIEF.md` is the original (frozen) spec; the shipped rule set has since grown well beyond it — this file's rule table is the authoritative list.
 
 ## Severity scheme
 
-Three levels only: `low`, `medium`, `high`. Compare via `Severity.rank` (LOW=0, MEDIUM=1, HIGH=2), not by name. The CLI's `--fail-on` defaults to `high`, so LOW and MEDIUM findings are surfaced but do not fail CI by default.
+Four levels: `low`, `medium`, `high`, `critical`. Compare via `Severity.rank` (LOW=0, MEDIUM=1, HIGH=2, CRITICAL=3), not by name. Grading principle: severity = criticality × exploitability — `critical` is reserved for configurations that hand over the host outright (privileged mode, engine sockets, SYS_ADMIN, raw memory devices, all-device cgroup rules).
+
+The CLI's `--fail-on` defaults to `high`; CRITICAL outranks HIGH, so the default CI gate fails on both. LOW and MEDIUM findings are surfaced but do not fail CI by default.
 
 ## Implemented rules
 
 | ID | Severity | What it flags |
 |---|---|---|
-| CG001 | high | `privileged: true` |
+| CG001 | critical | `privileged: true` |
 | CG002 | high | `network_mode: host` |
 | CG003 | high | `pid: host` |
-| CG004 | high / medium | dangerous Linux capabilities in `cap_add` (SYS_ADMIN, NET_ADMIN, SYS_PTRACE, SYS_MODULE, SYS_RAWIO, SYS_BOOT, MAC_*=high; SYS_TIME, DAC_*, AUDIT_*=medium) |
+| CG004 | critical / high / medium / low | dangerous Linux capabilities in `cap_add`. critical: SYS_ADMIN, ALL, SYS_MODULE; high: NET_ADMIN, SYS_PTRACE, SYS_RAWIO, SYS_BOOT, MAC_*, DAC_READ_SEARCH ("shocker" escape), BPF; medium: SYS_TIME, DAC_OVERRIDE, AUDIT_*, PERFMON, SYS_CHROOT, SETUID, SETGID, NET_RAW, CHECKPOINT_RESTORE; low: SYSLOG |
 | CG005 | high | `ipc: host` |
 | CG006 | low | missing `security_opt: no-new-privileges:true` |
 | CG007 | low | missing `read_only: true` |
@@ -21,13 +23,25 @@ Three levels only: `low`, `medium`, `high`. Compare via `Severity.rank` (LOW=0, 
 | CG009 | high | `userns_mode: host` |
 | CG010 | medium | unpinned image (`:latest` or no digest) |
 | CG011 | low | `cap_add` is set without `cap_drop: [ALL]` (defense-in-depth) |
-| CG020 | high | `/var/run/docker.sock` mount |
-| CG021 | high / medium / low | mount of sensitive host path. `/`, `/etc`, `/root` = high (rw or ro); kernel/system paths (`/sys`, `/proc`, `/dev`, `/usr`, `/lib*`, `/sbin`, `/bin`, `/boot`) = high writable / medium read-only; `/var`, `/home` = medium writable / low read-only |
-| CG022 | high | host device passed into container via `devices:` |
-| CG030 | medium | secret-looking env var (PASSWORD/SECRET/TOKEN/API_KEY/etc.) with an inline value (vs. `${VAR}` placeholder) |
-| CG040 | medium | port published to all interfaces (no `host_ip` or `0.0.0.0`) |
+| CG020 | critical | container-engine socket exposure: docker.sock (`/var/run` and `/run` forms), containerd, podman, balena sockets, and parent-dir mounts (`/run`, `/var/run`, `/run/containerd`, …) that contain them. Fires on read-only mounts too — ro does not block socket API calls |
+| CG021 | critical … low | mount of sensitive host path. `/` = critical writable / high ro; `/etc`, `/root`, `/var/lib/docker` = high (rw or ro); kernel/system paths (`/sys`, `/proc`, `/dev`, `/usr`, `/lib*`, `/sbin`, `/bin`, `/boot`) = high writable / medium read-only; `/var`, `/home` = medium writable / low read-only |
+| CG022 | critical / high / medium / low | host device passed via `devices:`, tiered: `/dev/mem`, `/dev/kmem`, `/dev/port` = critical; raw disks (`/dev/sd*`, `/dev/hd*`, `/dev/nvme*`, `/dev/vd*`, `/dev/xvd*`, `/dev/mapper/*`, `/dev/dm-*`, `/dev/loop*`, `/dev/md*`) = high; `/dev/kvm`, `/dev/net/tun`, `/dev/fuse` = medium; peripherals (`/dev/dri*`, `/dev/snd*`, `/dev/ttyUSB*`, `/dev/ttyACM*`, `/dev/video*`, `/dev/usb*`, `/dev/bus/usb*`, `/dev/input*`, `/dev/hidraw*`) = low; anything else under `/dev/` = medium |
+| CG023 | critical / medium | `device_cgroup_rules`: type `a` or `*:*` major:minor = critical (all-device access with default CAP_MKNOD); any other rule = medium |
+| CG030 | medium | secret-looking env var key (PASSWORD/SECRET/TOKEN/API_KEY/etc.) with an inline value. Values starting with `$` (`${VAR}` or `$VAR` interpolation) are placeholders, not flagged — this also skips literal `$…` values like bcrypt hashes (accepted tradeoff). Suppressed when CG031 fires on the same var |
+| CG031 | high | env value matching a known token shape regardless of key name: GitHub (`gh[pousr]_`, `github_pat_`), AWS key IDs (`AKIA`/`ASIA`), `sk-…` API keys, Slack `xox*`, GitLab `glpat-`, JWTs, PEM private-key blocks |
+| CG032 | high / medium | same secret detection applied to `build.args` (token shape = high, key-name match = medium) — build args are baked into image layers |
+| CG040 | medium | port published to all interfaces: no `host_ip`, `0.0.0.0`, or IPv6 `::` (short form `":::8080:80"` included; bracketed hosts like `[::1]` parse correctly) |
 | CG050 | low | no memory or CPU limit set |
+| CG051 | low | `oom_kill_disable: true` |
+| CG052 | low | `logging: { driver: none }` (audit-trail loss) |
 | CG060 | high | `security_opt` disables AppArmor (`apparmor=unconfined`) or seccomp (`seccomp=unconfined`) |
+| CG061 | high | `security_opt` disables SELinux label confinement (`label:disable` / `label=disable`) |
+| CG070 | high | `cgroup: host` |
+| CG071 | medium | `uts: host` |
+| CG072 | medium | `network_mode:` or `pid:` joined to another container (`container:…` / `service:…`) |
+| CG073 | low | dangerous-but-namespaced sysctls: `net.ipv4.ip_unprivileged_port_start=0`, `net.ipv4.ip_forward=1`. Deliberately tiny set — Docker rejects non-namespaced sysctls, so `kernel.*` escape vectors can't appear in a working compose file |
+
+Note: CG011 lives in the capability logic (privilege band) despite its ID — a pre-existing ID/band mismatch, kept for stability.
 
 ## Git workflow
 
@@ -65,11 +79,20 @@ Single-purpose CLI; the core is small.
 ```
 src/composeguard/
 ├── cli.py        # argparse, exit-code logic, --fail-on threshold, ANSI coloring
-├── analyzer.py   # YAML loading + per-service rule checks; emits Finding objects
-└── checks/       # (placeholder) split rules out once analyzer.py grows past ~20 rules
+├── models.py     # Severity, Finding, CheckFn type alias
+├── analyzer.py   # YAML loading + orchestration loop; re-exports Severity/Finding
+└── checks/       # one module per rule band, each exposing a CHECKS tuple
+    ├── __init__.py   # ALL_CHECKS = concatenation of every module's CHECKS
+    ├── privilege.py  # CG001-CG009, CG011, CG070-CG073
+    ├── image.py      # CG010
+    ├── mounts.py     # CG020-CG023
+    ├── secrets.py    # CG030-CG032
+    ├── network.py    # CG040
+    ├── resources.py  # CG050-CG052
+    └── sandbox.py    # CG060-CG061
 ```
 
-`analyzer.analyze_file(path)` is the single entry point used by `cli.main`. It returns `list[Finding]`; each `Finding` has a stable `rule_id` (`CG###`), a `Severity`, a `message`, and a service name. The CLI exits non-zero when any finding meets or exceeds `--fail-on` (default `high`) — this is the contract callers (CI users) depend on, so don't break it without bumping the major version.
+`analyzer.analyze_file(path)` is the single entry point used by `cli.main`. It returns `list[Finding]`; each `Finding` has a stable `rule_id` (`CG###`), a `Severity`, a `message`, and a service name. Import `Severity`/`Finding` from `composeguard.analyzer` (backwards-compatible re-export) or `composeguard.models`. The CLI exits non-zero when any finding meets or exceeds `--fail-on` (default `high`) — this is the contract callers (CI users) depend on, so don't break it without bumping the major version.
 
 ## Security invariants (do not violate)
 
@@ -85,17 +108,19 @@ If a feature seems to need any of these, stop and discuss with the user first.
 
 ## Adding a new rule
 
-1. Append a check to `_check_service` in `analyzer.py` (or pull rules into `checks/` once there are >~20).
-2. Pick the next free `CG###` id. Convention so far:
-   - `CG001–CG009`: process-privilege / namespace flags (`privileged`, host namespaces, `user:root`, `userns_mode`, hardening flags)
+1. Write a `_check_*(name, svc) -> list[Finding]` function in the right `checks/` module and add it to that module's `CHECKS` tuple. Severity-graded rules use a module-level lookup table (see `_CAP_SEVERITY`, `_SENSITIVE_PATHS`, `_DEVICE_SEVERITY`, `_TOKEN_PATTERNS`).
+2. Pick the next free `CG###` id. Convention:
+   - `CG001–CG009`: process-privilege / namespace flags (`privileged`, host namespaces, `user:root`, `userns_mode`, hardening flags) — **full**; overflow goes to CG070+
    - `CG010–CG019`: image / supply-chain (unpinned tags, missing digest, `:latest`)
-   - `CG020–CG029`: dangerous mounts and device passthrough (docker.sock, sensitive host paths, `devices:`)
-   - `CG030–CG039`: secrets in configuration
+   - `CG020–CG029`: dangerous mounts and device passthrough (engine sockets, sensitive host paths, `devices:`, `device_cgroup_rules`)
+   - `CG030–CG039`: secrets in configuration (env vars, build args)
    - `CG040–CG049`: network exposure (ports, host_ip)
-   - `CG050–CG059`: resource limits / availability
-   - `CG060–CG069`: MAC / sandbox bypass (AppArmor, seccomp)
-3. Add a positive test (rule fires) and a negative test (rule does not fire on a clean config) in `tests/test_analyzer.py`. The `HARDENED_SERVICE` constant is the negative-baseline; the new rule must not fire on it.
-4. If the rule changes CLI behavior or output, update `tests/test_cli.py` and the rule list in `README.md` and the bad/good fixtures in `examples/`.
+   - `CG050–CG059`: resource limits / availability / operational hygiene (limits, OOM, logging)
+   - `CG060–CG069`: MAC / sandbox bypass (AppArmor, seccomp, SELinux)
+   - `CG070–CG079`: namespace / cgroup / kernel-tunable sharing (overflow of the full CG001–009 band)
+3. Assign severity by criticality × exploitability: `critical` = hands over the host outright; `high` = strong escape/takeover surface; `medium` = meaningful weakening; `low` = hygiene/defense-in-depth. Rules that fire on the *absence* of hardening (like CG006/CG007/CG050) must be low, or the tool becomes too noisy to gate CI.
+4. Add a positive test (rule fires, with the expected severity) and a negative test (rule does not fire on a clean config) in `tests/test_checks.py`. The `HARDENED_SERVICE` constant in `tests/helpers.py` is the negative-baseline; the new rule must not fire on it — prefer rules that only fire on explicitly-present misconfiguration. If you add a new missing-X rule, update `HARDENED_SERVICE` in the same commit.
+5. If the rule changes CLI behavior or output, update `tests/test_cli.py`, the rule table here, the rule list in `README.md`, and the bad/good fixtures in `examples/` (regenerate `examples/README.md` output by actually running the CLI — don't hand-edit).
 
 ## Distribution
 

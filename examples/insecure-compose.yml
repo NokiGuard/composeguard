@@ -1,5 +1,5 @@
 # A homelab stack where every service has at least one issue.
-# Designed to exercise every rule (CG001-CG060). Run:
+# Designed to exercise every rule (CG001-CG073). Run:
 #   composeguard examples/insecure-compose.yml
 
 services:
@@ -15,17 +15,19 @@ services:
     volumes:
       - /etc:/etc:ro
 
-  # Container manager (Portainer-style): privileged + docker socket.
+  # Container manager (Portainer-style): privileged + docker socket +
+  # host cgroup namespace.
   manager:
     image: portainer/portainer-ce
     privileged: true
+    cgroup: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "9000:9000"
 
-  # Monitoring agent that wanted host namespaces, SYS_ADMIN, and an
-  # explicit root user — and skipped cap_drop entirely.
+  # Monitoring agent that wanted host namespaces, SYS_ADMIN, an explicit
+  # root user, and a relaxed sysctl — and skipped cap_drop entirely.
   monitor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     user: "0"
@@ -33,21 +35,43 @@ services:
     network_mode: host
     pid: host
     ipc: host
+    uts: host
     cap_add:
       - SYS_ADMIN
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
 
   # Media server passing a host GPU device into the container.
+  # (Low severity: GPU passthrough is common and comparatively benign.)
   media:
     image: jellyfin/jellyfin
     devices:
       - /dev/dri/renderD128:/dev/dri/renderD128
 
-  # Database with secrets pasted directly into env.
+  # Database with secrets pasted directly into env, logging turned off,
+  # the OOM killer disabled, and an all-devices cgroup rule.
   db:
     image: postgres:16
+    oom_kill_disable: true
+    logging:
+      driver: none
+    device_cgroup_rules:
+      - "a *:* rwm"
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: hunter2
       API_KEY: sk_live_REDACTED_example_only
+      GITHUB_TOKEN: ghp_abcdefghijklmnopqrstuv0123456789
     ports:
       - "5432:5432"
+
+  # CI runner built in-place: secret baked into the image via build args,
+  # SELinux confinement off, and piggybacking on the db's network namespace.
+  ci:
+    build:
+      context: ./ci
+      args:
+        NPM_TOKEN: hunter2-registry-token
+    security_opt:
+      - label=disable
+    network_mode: "service:db"
