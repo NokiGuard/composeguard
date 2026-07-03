@@ -36,4 +36,32 @@ def _check_security_opt_unconfined(name: str, svc: dict[str, Any]) -> list[Findi
     return out
 
 
-CHECKS: tuple[CheckFn, ...] = (_check_security_opt_unconfined,)
+# --- CG061: SELinux label confinement disabled -------------------------------
+
+
+def _check_selinux_disabled(name: str, svc: dict[str, Any]) -> list[Finding]:
+    """Flag security_opt: ['label:disable'] (or label=disable)."""
+    opts = svc.get("security_opt") or []
+    if not isinstance(opts, list):
+        return []
+    out: list[Finding] = []
+    for o in opts:
+        if not isinstance(o, str):
+            continue
+        normalized = o.strip().replace("=", ":").lower()
+        if normalized == "label:disable":
+            out.append(
+                Finding(
+                    "CG061",
+                    Severity.HIGH,
+                    f"security_opt disables SELinux label confinement ({o!r})",
+                    name,
+                )
+            )
+    return out
+
+
+CHECKS: tuple[CheckFn, ...] = (
+    _check_security_opt_unconfined,
+    _check_selinux_disabled,
+)

@@ -29,4 +29,41 @@ def _check_resource_limits(name: str, svc: dict[str, Any]) -> list[Finding]:
     ]
 
 
-CHECKS: tuple[CheckFn, ...] = (_check_resource_limits,)
+# --- CG051: OOM killer disabled ----------------------------------------------
+
+
+def _check_oom_kill_disable(name: str, svc: dict[str, Any]) -> list[Finding]:
+    if svc.get("oom_kill_disable") is True:
+        return [
+            Finding(
+                "CG051",
+                Severity.LOW,
+                "oom_kill_disable: true lets a leaking container stall the host under OOM",
+                name,
+            )
+        ]
+    return []
+
+
+# --- CG052: logging disabled ---------------------------------------------------
+
+
+def _check_logging_disabled(name: str, svc: dict[str, Any]) -> list[Finding]:
+    logging = svc.get("logging")
+    if isinstance(logging, dict) and logging.get("driver") == "none":
+        return [
+            Finding(
+                "CG052",
+                Severity.LOW,
+                "logging driver 'none' discards all container logs (no audit trail)",
+                name,
+            )
+        ]
+    return []
+
+
+CHECKS: tuple[CheckFn, ...] = (
+    _check_resource_limits,
+    _check_oom_kill_disable,
+    _check_logging_disabled,
+)
