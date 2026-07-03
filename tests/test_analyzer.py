@@ -245,14 +245,15 @@ def test_named_volume_not_flagged(tmp_path: Path) -> None:
 def test_flags_host_device_passthrough(tmp_path: Path) -> None:
     p = _write(tmp_path, HARDENED_SERVICE + "    devices:\n      - /dev/kvm:/dev/kvm\n")
     findings = [f for f in analyze_file(p) if f.rule_id == "CG022"]
-    assert findings and findings[0].severity is Severity.HIGH
+    assert findings and findings[0].severity is Severity.MEDIUM
 
 
 def test_flags_long_form_device_passthrough(tmp_path: Path) -> None:
     body = HARDENED_SERVICE + (
         "    devices:\n      - source: /dev/sda1\n        target: /dev/sda1\n"
     )
-    assert any(f.rule_id == "CG022" for f in analyze_file(_write(tmp_path, body)))
+    findings = [f for f in analyze_file(_write(tmp_path, body)) if f.rule_id == "CG022"]
+    assert findings and findings[0].severity is Severity.HIGH
 
 
 def test_no_devices_clean(tmp_path: Path) -> None:
