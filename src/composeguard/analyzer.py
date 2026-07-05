@@ -7,11 +7,13 @@ import yaml
 
 from composeguard.checks import ALL_CHECKS
 
-# Re-exported for backwards compatibility: `analyzer` was the original home of
-# the whole engine, and cli.py / tests / external callers import these from
-# here. Explicit `as` form satisfies mypy strict (no_implicit_reexport).
-from composeguard.models import Finding as Finding
-from composeguard.models import Severity as Severity
+# Finding/Severity are re-exported for backwards compatibility: `analyzer` was
+# the original home of the whole engine, and cli.py / tests / external callers
+# import these from here. __all__ marks them exported for mypy strict
+# (no_implicit_reexport) and for CodeQL's unused-import analysis alike.
+from composeguard.models import Finding, Severity
+
+__all__ = ["MAX_FILE_BYTES", "Finding", "Severity", "analyze_file"]
 
 MAX_FILE_BYTES = 1 * 1024 * 1024  # 1 MiB hard cap on input size
 
