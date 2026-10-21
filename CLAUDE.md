@@ -78,7 +78,7 @@ Single-purpose CLI; the core is small.
 
 ```
 src/composeguard/
-├── cli.py        # argparse, exit-code logic, --fail-on threshold, ANSI coloring
+├── cli.py        # argparse, exit-code logic, --fail-on threshold, --ignore, ANSI coloring
 ├── models.py     # Severity, Finding, CheckFn type alias
 ├── analyzer.py   # YAML loading + orchestration loop; re-exports Severity/Finding
 └── checks/       # one module per rule band, each exposing a CHECKS tuple

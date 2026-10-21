@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -24,6 +25,18 @@ _SEVERITY_COLOR: dict[Severity, str] = {
     Severity.MEDIUM: _YELLOW,
     Severity.LOW: _GREY,
 }
+
+
+_RULE_ID = re.compile(r"CG\d{3}")
+
+
+def _rule_ids(value: str) -> set[str]:
+    """argparse type for --ignore: comma-separated CG### ids, case-insensitive."""
+    ids = {part.strip().upper() for part in value.split(",") if part.strip()}
+    bad = sorted(i for i in ids if not _RULE_ID.fullmatch(i))
+    if bad:
+        raise argparse.ArgumentTypeError(f"invalid rule id(s): {', '.join(bad)} (expected CG###)")
+    return ids
 
 
 def _supports_color(mode: str) -> bool:
@@ -65,6 +78,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Exit non-zero if any finding is at this severity or higher (default: high).",
     )
     parser.add_argument(
+        "--ignore",
+        type=_rule_ids,
+        action="append",
+        default=[],
+        metavar="CG###[,CG###...]",
+        help="Skip these rule ids (repeatable). Ignored findings don't affect the exit code.",
+    )
+    parser.add_argument(
         "--color",
         choices=["auto", "always", "never"],
         default="auto",
@@ -77,9 +98,11 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     threshold = Severity(args.fail_on)
     use_color = _supports_color(args.color)
+    ignored: set[str] = set().union(*args.ignore)
 
     worst = Severity.LOW
     total = 0
+    suppressed = 0
     errors = 0
     for path in args.files:
         try:
@@ -89,6 +112,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"composeguard: error: {path}: {exc}", file=sys.stderr)
             errors += 1
             continue
+        kept = [f for f in findings if f.rule_id not in ignored]
+        suppressed += len(findings) - len(kept)
+        findings = kept
         total += len(findings)
         for finding in findings:
             print(_format_finding(path, finding, use_color=use_color))
@@ -96,6 +122,8 @@ def main(argv: list[str] | None = None) -> int:
                 worst = finding.severity
 
     summary = f"\n{total} finding(s) across {len(args.files)} file(s)."
+    if suppressed:
+        summary += f" {suppressed} ignored via --ignore."
     if errors:
         summary += f" {errors} file(s) could not be analyzed."
     print(summary)

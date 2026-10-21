@@ -92,6 +92,7 @@ pipx ensurepath         # if you used pipx
 composeguard docker-compose.yml
 composeguard --fail-on medium service-a/compose.yml service-b/compose.yml
 composeguard --color never compose.yml > findings.txt    # plain output
+composeguard --ignore CG007,CG050 compose.yml            # skip rules you've accepted
 ```
 
 Exit codes, for CI gates:
