@@ -94,9 +94,15 @@ composeguard --fail-on medium service-a/compose.yml service-b/compose.yml
 composeguard --color never compose.yml > findings.txt    # plain output
 ```
 
-Exit code is non-zero when a finding meets or exceeds `--fail-on`
-(default: `high`, which also fails on `critical`), making it suitable
-for CI gates. Severity is colored when stdout is a TTY (override with
+Exit codes, for CI gates:
+
+| Code | Meaning |
+|---|---|
+| `0` | no finding at or above `--fail-on` |
+| `1` | at least one finding at or above `--fail-on` (default: `high`, which also fails on `critical`) |
+| `2` | a file could not be analyzed (missing, unreadable, invalid YAML) — other files are still checked |
+
+Severity is colored when stdout is a TTY (override with
 `--color always|never`; honors `NO_COLOR`).
 
 See [`examples/`](examples/) for a side-by-side bad/good homelab stack

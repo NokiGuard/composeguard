@@ -83,6 +83,7 @@ src/composeguard/
 ├── analyzer.py   # YAML loading + orchestration loop; re-exports Severity/Finding
 └── checks/       # one module per rule band, each exposing a CHECKS tuple
     ├── __init__.py   # ALL_CHECKS = concatenation of every module's CHECKS
+    ├── _values.py    # scalar_str: safe stringification of untrusted YAML values
     ├── privilege.py  # CG001-CG009, CG011, CG070-CG073
     ├── image.py      # CG010
     ├── mounts.py     # CG020-CG023
@@ -92,7 +93,7 @@ src/composeguard/
     └── sandbox.py    # CG060-CG061
 ```
 
-`analyzer.analyze_file(path)` is the single entry point used by `cli.main`. It returns `list[Finding]`; each `Finding` has a stable `rule_id` (`CG###`), a `Severity`, a `message`, and a service name. Import `Severity`/`Finding` from `composeguard.analyzer` (backwards-compatible re-export) or `composeguard.models`. The CLI exits non-zero when any finding meets or exceeds `--fail-on` (default `high`) — this is the contract callers (CI users) depend on, so don't break it without bumping the major version.
+`analyzer.analyze_file(path)` is the single entry point used by `cli.main`. It returns `list[Finding]`; each `Finding` has a stable `rule_id` (`CG###`), a `Severity`, a `message`, and a service name. Import `Severity`/`Finding` from `composeguard.analyzer` (backwards-compatible re-export) or `composeguard.models`. The CLI exits 1 when any finding meets or exceeds `--fail-on` (default `high`), and 2 when any input file could not be analyzed (missing, unreadable, invalid YAML) — this is the contract callers (CI users) depend on, so don't break it without bumping the major version.
 
 ## Security invariants (do not violate)
 
@@ -100,6 +101,8 @@ This tool parses YAML from untrusted sources (random GitHub repos, forum posts).
 
 - **`yaml.safe_load` only** — never `yaml.load`, never custom loaders that resolve tags.
 - **1 MiB input cap** (`MAX_FILE_BYTES` in `analyzer.py`). Reject larger files before parsing.
+- **Never `str()`/`repr()`/f-string a non-scalar YAML value.** YAML aliases let a ~500-byte file describe a 10⁹-element structure; `safe_load` builds it cheaply by sharing references, and stringifying is what expands it (billion laughs). Use `checks._values.scalar_str`, which returns `None` for containers. `test_alias_bomb_does_not_expand` guards this.
+- **Parse failures are `ValueError`s, not crashes.** `_read_compose` converts YAML, UTF-8 and nesting-depth errors; the CLI reports them on stderr, keeps going, and exits 2.
 - **No network calls.** No `requests`, `httpx`, `urllib.request` etc.
 - **No subprocess execution.** No `subprocess`, `os.system`, shell-outs.
 - **Read-only file access** to user-supplied paths. No writes outside `tmp_path` in tests.

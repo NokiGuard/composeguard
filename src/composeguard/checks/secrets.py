@@ -6,6 +6,7 @@ import re
 from collections.abc import Iterator
 from typing import Any
 
+from composeguard.checks._values import scalar_str
 from composeguard.models import CheckFn, Finding, Severity
 
 _SECRET_KEY_PATTERN = re.compile(
@@ -43,8 +44,9 @@ def _iter_env(env: object) -> Iterator[tuple[str, str]]:
                 yield k, v
     elif isinstance(env, dict):
         for k, v in env.items():
-            if isinstance(k, str):
-                yield k, "" if v is None else str(v)
+            value = "" if v is None else scalar_str(v)
+            if isinstance(k, str) and value is not None:
+                yield k, value
 
 
 def _is_placeholder(value: str) -> bool:

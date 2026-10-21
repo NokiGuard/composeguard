@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from composeguard.checks._values import scalar_str
 from composeguard.models import CheckFn, Finding, Severity
 
 # Used in the CG040 port-binding check. Stored as a constant with a localized
@@ -29,6 +30,17 @@ def _port_host_ip(port: object) -> str | None:
     return None
 
 
+def _port_label(port: object) -> str:
+    """Short display form of a port spec, built only from scalar fields."""
+    if isinstance(port, str):
+        return repr(port)
+    if isinstance(port, dict):
+        published = scalar_str(port.get("published")) or "?"
+        target = scalar_str(port.get("target")) or "?"
+        return f"{published}->{target}"
+    return scalar_str(port) or "<unparsed>"
+
+
 def _check_ports(name: str, svc: dict[str, Any]) -> list[Finding]:
     raw = svc.get("ports") or []
     if not isinstance(raw, list):
@@ -41,7 +53,8 @@ def _check_ports(name: str, svc: dict[str, Any]) -> list[Finding]:
                 Finding(
                     "CG040",
                     Severity.MEDIUM,
-                    f"port {p!r} published on all interfaces (use a '127.0.0.1:' prefix)",
+                    f"port {_port_label(p)} published on all interfaces "
+                    "(use a '127.0.0.1:' prefix)",
                     name,
                 )
             )

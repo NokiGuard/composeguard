@@ -401,3 +401,40 @@ def test_rejects_non_mapping_root(tmp_path: Path) -> None:
 def test_empty_file_yields_no_findings(tmp_path: Path) -> None:
     p = _write(tmp_path, "")
     assert analyze_file(p) == []
+
+
+def test_invalid_yaml_raises_value_error(tmp_path: Path) -> None:
+    p = _write(tmp_path, "services:\n  a: [\n")
+    with pytest.raises(ValueError, match="Invalid YAML"):
+        analyze_file(p)
+
+
+def test_non_utf8_raises_value_error(tmp_path: Path) -> None:
+    p = tmp_path / "compose.yml"
+    p.write_bytes(b"\xff\xfeservices: {}\n")
+    with pytest.raises(ValueError, match="UTF-8"):
+        analyze_file(p)
+
+
+def test_deep_nesting_raises_value_error(tmp_path: Path) -> None:
+    p = _write(tmp_path, "services: " + "[" * 50_000 + "]" * 50_000 + "\n")
+    with pytest.raises(ValueError, match="too deep"):
+        analyze_file(p)
+
+
+def test_alias_bomb_does_not_expand(tmp_path: Path) -> None:
+    # ~500 bytes describing 10^9 elements. safe_load shares references, so
+    # this is only dangerous if a check str()s/repr()s the structure — which
+    # would hang and eat gigabytes here.
+    body = "x0: &l0 [a, a, a, a, a, a, a, a, a, a]\n"
+    for i in range(1, 9):
+        body += f"x{i}: &l{i} [" + ", ".join([f"*l{i - 1}"] * 10) + "]\n"
+    body += HARDENED_SERVICE
+    body += (
+        "    user: *l8\n"
+        "    environment: {BOMB: *l8}\n"
+        "    sysctls: {net.ipv4.ip_forward: *l8}\n"
+        "    ports: [*l8, {published: *l8, target: 80}]\n"
+    )
+    findings = analyze_file(_write(tmp_path, body))
+    assert {f.rule_id for f in findings} == {"CG040"}

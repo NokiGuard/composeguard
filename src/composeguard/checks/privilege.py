@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from composeguard.checks._values import scalar_str
 from composeguard.models import CheckFn, Finding, Severity
 
 # --- CG001 / CG002 / CG003 / CG005: privilege & namespace flags -------------
@@ -148,10 +149,10 @@ def _check_read_only(name: str, svc: dict[str, Any]) -> list[Finding]:
 
 def _check_user(name: str, svc: dict[str, Any]) -> list[Finding]:
     """Flag explicit `user: root` / `user: 0` / `user: 0:0`."""
-    user = svc.get("user")
+    user = scalar_str(svc.get("user"))
     if user is None:
         return []
-    user_str = str(user).strip()
+    user_str = user.strip()
     uid = user_str.split(":", 1)[0]
     if uid in {"root", "0"}:
         return [
@@ -244,7 +245,8 @@ def _iter_sysctls(sysctls: object) -> list[tuple[str, str]]:
             if isinstance(item, str) and "=" in item
         ]
     if isinstance(sysctls, dict):
-        return [(str(k), str(v)) for k, v in sysctls.items()]
+        pairs = ((scalar_str(k), scalar_str(v)) for k, v in sysctls.items())
+        return [(k, v) for k, v in pairs if k is not None and v is not None]
     return []
 
 

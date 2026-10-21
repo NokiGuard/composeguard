@@ -59,3 +59,21 @@ def test_color_never_emits_no_ansi(tmp_path: Path, capsys: pytest.CaptureFixture
     out = capsys.readouterr().out
     assert "\033[" not in out
     assert "CRITICAL" in out
+
+
+def test_unreadable_file_exits_2_and_continues(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bad = tmp_path / "bad.yml"
+    bad.write_text("services:\n  a: [\n", encoding="utf-8")
+    good = tmp_path / "good.yml"
+    good.write_text(
+        "services:\n  app:\n    image: nginx@sha256:abc\n    privileged: true\n", encoding="utf-8"
+    )
+    rc = main([str(bad), str(tmp_path / "missing.yml"), str(good), "--color", "never"])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "Invalid YAML" in captured.err
+    assert "missing.yml" in captured.err
+    assert "CG001" in captured.out  # later files are still analyzed
+    assert "2 file(s) could not be analyzed" in captured.out

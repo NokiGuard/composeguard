@@ -22,6 +22,10 @@ untrusted sources. The tool is designed with these guarantees:
 
 - YAML is parsed with `yaml.safe_load` only.
 - Input files are size-capped (see `MAX_FILE_BYTES`).
+- YAML alias expansion ("billion laughs") is not triggered: container
+  values are never stringified.
+- Malformed, non-UTF-8, or pathologically nested input is reported as an
+  error, not a crash.
 - No network calls are made.
 - No subprocess execution.
 - File access is read-only and limited to user-supplied paths.

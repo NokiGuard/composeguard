@@ -80,15 +80,29 @@ def main(argv: list[str] | None = None) -> int:
 
     worst = Severity.LOW
     total = 0
+    errors = 0
     for path in args.files:
-        findings = analyze_file(path)
+        try:
+            findings = analyze_file(path)
+        except (OSError, ValueError) as exc:
+            # One unreadable file shouldn't hide findings in the others.
+            print(f"composeguard: error: {path}: {exc}", file=sys.stderr)
+            errors += 1
+            continue
         total += len(findings)
         for finding in findings:
             print(_format_finding(path, finding, use_color=use_color))
             if finding.severity.rank > worst.rank:
                 worst = finding.severity
 
-    print(f"\n{total} finding(s) across {len(args.files)} file(s).")
+    summary = f"\n{total} finding(s) across {len(args.files)} file(s)."
+    if errors:
+        summary += f" {errors} file(s) could not be analyzed."
+    print(summary)
+    # Exit 2 (not 1) on unanalyzable input so CI can tell "insecure" apart
+    # from "never checked"; argparse uses 2 for usage errors too.
+    if errors:
+        return 2
     return 1 if worst.rank >= threshold.rank and total > 0 else 0
 
 

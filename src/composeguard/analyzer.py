@@ -27,8 +27,17 @@ def _read_compose(path: Path) -> dict[str, Any]:
     size = path.stat().st_size
     if size > MAX_FILE_BYTES:
         raise ValueError(f"File too large ({size} bytes; limit {MAX_FILE_BYTES}).")
-    with path.open("r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh)
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh)
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"File is not valid UTF-8 ({exc.reason}).") from exc
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML: {exc}") from exc
+    except RecursionError as exc:
+        # PyYAML's composer recurses per nesting level; a 1 MiB file of '['
+        # blows the stack before the size cap can help.
+        raise ValueError("YAML nesting too deep.") from exc
     if data is None:
         return {}
     if not isinstance(data, dict):
