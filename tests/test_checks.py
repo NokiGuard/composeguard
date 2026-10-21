@@ -226,7 +226,9 @@ def test_jwt_value_is_cg031(tmp_path: Path) -> None:
 
 
 def test_pem_private_key_is_cg031(tmp_path: Path) -> None:
-    snippet = '    environment:\n      CERT: "-----BEGIN RSA PRIVATE KEY-----\\nMIIE..."\n'
+    # Header split so pre-commit's detect-private-key doesn't flag the fixture.
+    header = "-----BEGIN RSA " + "PRIVATE KEY-----"
+    snippet = f'    environment:\n      CERT: "{header}\\nMIIE..."\n'
     assert _findings(tmp_path, snippet, "CG031")
 
 
@@ -382,3 +384,99 @@ def test_selinux_custom_label_not_flagged(tmp_path: Path) -> None:
     )
     p = _write(tmp_path, snippet)
     assert not any(f.rule_id == "CG061" for f in analyze_file(p))
+
+
+# --- mount parsing: options, normalization, rootless sockets ----------------------
+
+
+def test_ro_with_selinux_relabel_option_is_read_only(tmp_path: Path) -> None:
+    for opts in ("ro,z", "Z,ro", "ro,rslave"):
+        findings = _volume_findings(tmp_path, f"/sys:/host-sys:{opts}", "CG021")
+        assert findings and findings[0].severity is Severity.MEDIUM, opts
+        assert "read-only" in findings[0].message
+
+
+def test_dotdot_path_is_normalized_before_grading(tmp_path: Path) -> None:
+    findings = _volume_findings(tmp_path, "/var/run/../../etc:/x", "CG021")
+    assert findings and findings[0].severity is Severity.HIGH  # /etc, not /var
+
+
+def test_double_slash_root_is_root(tmp_path: Path) -> None:
+    findings = _volume_findings(tmp_path, "//:/host", "CG021")
+    assert findings and findings[0].severity is Severity.CRITICAL
+
+
+def test_root_mount_stays_cg021_not_cg020(tmp_path: Path) -> None:
+    assert not _volume_findings(tmp_path, "/:/host:ro", "CG020")
+
+
+def test_rootless_docker_socket_is_critical(tmp_path: Path) -> None:
+    for src in (
+        "/run/user/1000/docker.sock",
+        "${XDG_RUNTIME_DIR}/docker.sock",
+        "~/.docker/run/docker.sock",
+        "${XDG_RUNTIME_DIR}/podman/podman.sock",
+        "/run/k3s/containerd/containerd.sock",
+        "/var/run/crio/crio.sock",
+    ):
+        findings = _volume_findings(tmp_path, f"{src}:/var/run/docker.sock")
+        assert findings and findings[0].severity is Severity.CRITICAL, src
+
+
+def test_unrelated_relative_volume_not_cg020(tmp_path: Path) -> None:
+    assert not _volume_findings(tmp_path, "./data:/data")
+
+
+# --- CG022: homelab peripherals ----------------------------------------------------
+
+
+def test_homelab_peripherals_are_low(tmp_path: Path) -> None:
+    for dev in (
+        "/dev/nvidia0",
+        "/dev/nvidia-uvm",
+        "/dev/serial/by-id/usb-ITead_Sonoff_Zigbee-if00",
+        "/dev/ttyAMA0",
+        "/dev/apex_0",
+    ):
+        findings = _findings(tmp_path, f"    devices:\n      - {dev}:/dev/x\n", "CG022")
+        assert findings and findings[0].severity is Severity.LOW, dev
+
+
+# --- CG010: build + image ----------------------------------------------------------
+
+
+def test_image_naming_build_output_not_flagged(tmp_path: Path) -> None:
+    body = "services:\n  app:\n    build: .\n    image: myapp\n"
+    assert not [f for f in analyze_file(_write(tmp_path, body)) if f.rule_id == "CG010"]
+
+
+# --- CG030: false positives and URL credentials ------------------------------------
+
+
+def test_secret_file_reference_not_flagged(tmp_path: Path) -> None:
+    assert not _env_findings(tmp_path, "POSTGRES_PASSWORD_FILE: /run/secrets/db_password", "CG030")
+    assert not _env_findings(tmp_path, "TLS_PRIVATE_KEY_PATH: /certs/key.pem", "CG030")
+
+
+def test_secret_key_with_flag_value_not_flagged(tmp_path: Path) -> None:
+    assert not _env_findings(tmp_path, "PASSWORD_AUTH: false", "CG030")
+    assert not _env_findings(tmp_path, 'DISABLE_TOKEN: "yes"', "CG030")
+
+
+def test_url_with_password_is_flagged(tmp_path: Path) -> None:
+    findings = _env_findings(tmp_path, "DATABASE_URL: postgres://app:hunter2@db:5432/app", "CG030")
+    assert findings and findings[0].severity is Severity.MEDIUM
+    assert "URL" in findings[0].message
+
+
+def test_url_with_interpolated_password_not_flagged(tmp_path: Path) -> None:
+    assert not _env_findings(
+        tmp_path, "DATABASE_URL: postgres://app:${DB_PASSWORD}@db/app", "CG030"
+    )
+    assert not _env_findings(tmp_path, "UPSTREAM: https://example.com:8443/path", "CG030")
+
+
+def test_build_arg_url_with_password_flagged(tmp_path: Path) -> None:
+    snippet = "    build:\n      context: .\n      args:\n        PIP_INDEX_URL: https://u:pw@pypi.example\n"
+    findings = _findings(tmp_path, snippet, "CG032")
+    assert findings and findings[0].severity is Severity.MEDIUM

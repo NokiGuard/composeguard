@@ -9,7 +9,7 @@ GitHub and forums and rarely audit them.
 28 rules across the most common docker-compose security issues:
 
 - `privileged: true`, dangerous capabilities (tiered SYS_ADMIN → SYSLOG), and `cap_add` without `cap_drop: [ALL]`
-- Container-engine socket exposure — docker.sock in both `/var/run` and `/run` forms, containerd/podman/balena sockets, and parent-dir mounts that contain them (read-only doesn't help)
+- Container-engine socket exposure — docker.sock in both `/var/run` and `/run` forms, rootless/per-user sockets, containerd/podman/CRI-O/balena sockets, and parent-dir mounts that contain them (read-only doesn't help)
 - Host network / PID / IPC / UTS / cgroup namespaces, `userns_mode: host`, and joining another container's namespace (`container:` / `service:`)
 - Explicit `user: root` / `user: "0"`
 - Host devices passed into containers, tiered by risk — `/dev/mem` is critical, raw disks are high, GPU/USB peripherals are low
@@ -17,7 +17,7 @@ GitHub and forums and rarely audit them.
 - AppArmor, seccomp, or SELinux disabled via `security_opt`
 - Missing `read_only`, missing `no-new-privileges:true`
 - Unpinned images (`:latest`, no digest)
-- Secrets pasted inline in environment variables or `build.args` — including token-shape detection (GitHub/AWS/Slack/GitLab tokens, JWTs, PEM keys) regardless of the variable name
+- Secrets pasted inline in environment variables or `build.args` — including token-shape detection (GitHub/AWS/Slack/GitLab tokens, JWTs, PEM keys) regardless of the variable name, and passwords embedded in URLs (`postgres://user:pass@db`)
 - Ports published on all interfaces (IPv4 `0.0.0.0` and IPv6 `::`)
 - Missing CPU/memory limits, OOM killer disabled, logging driver `none`
 - Dangerous mounts of sensitive host paths (`/`, `/etc`, `/root`, `/var/lib/docker`, kernel/system surfaces)

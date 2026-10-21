@@ -13,6 +13,16 @@ _SECRET_KEY_PATTERN = re.compile(
     r"(?i)(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credentials?)"
 )
 
+# Keys that point at a secret rather than hold one — POSTGRES_PASSWORD_FILE
+# is exactly the pattern we want people to use.
+_SECRET_REF_SUFFIX = re.compile(r"(?i)_(file|path|dir)$")
+
+# Values that are flags, not credentials (PASSWORD_AUTH=false, …).
+_FLAG_VALUES = frozenset({"true", "false", "yes", "no", "on", "off"})
+
+# scheme://user:password@host with a literal (non-interpolated) password.
+_URL_CREDENTIALS = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]*:(?!\$)[^/\s@]+@")
+
 # Known token shapes. A value matching one of these is a confirmed-format
 # credential regardless of what the key is called — graded above the
 # key-name-only heuristic.
@@ -49,6 +59,14 @@ def _iter_env(env: object) -> Iterator[tuple[str, str]]:
                 yield k, value
 
 
+def _looks_like_secret_key(key: str, value: str) -> bool:
+    return (
+        _SECRET_KEY_PATTERN.search(key) is not None
+        and _SECRET_REF_SUFFIX.search(key) is None
+        and value.lower() not in _FLAG_VALUES
+    )
+
+
 def _is_placeholder(value: str) -> bool:
     # ${VAR} and $VAR interpolations are resolved by compose, not literals.
     # This also skips literal values that happen to start with '$' (e.g.
@@ -75,7 +93,16 @@ def _check_env_secrets(name: str, svc: dict[str, Any]) -> list[Finding]:
                     name,
                 )
             )
-        elif _SECRET_KEY_PATTERN.search(k):
+        elif _URL_CREDENTIALS.search(stripped):
+            out.append(
+                Finding(
+                    "CG030",
+                    Severity.MEDIUM,
+                    f"env var {k!r} embeds a password in a URL (use secrets/.env)",
+                    name,
+                )
+            )
+        elif _looks_like_secret_key(k, stripped):
             out.append(
                 Finding(
                     "CG030",
@@ -111,7 +138,7 @@ def _check_build_args(name: str, svc: dict[str, Any]) -> list[Finding]:
                     name,
                 )
             )
-        elif _SECRET_KEY_PATTERN.search(k):
+        elif _URL_CREDENTIALS.search(stripped) or _looks_like_secret_key(k, stripped):
             out.append(
                 Finding(
                     "CG032",

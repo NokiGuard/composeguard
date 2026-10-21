@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import posixpath
 from typing import Any
 
 from composeguard.models import CheckFn, Finding, Severity
@@ -15,22 +16,39 @@ _ENGINE_SOCKETS = (
     "/run/docker.sock",
     "/run/containerd/containerd.sock",
     "/run/podman/podman.sock",
+    "/run/crio/crio.sock",
     "/run/balena-engine.sock",
     "/run/balena.sock",
 )
 
+# Socket filenames matched anywhere, so rootless and per-user engines are
+# caught too: /run/user/1000/docker.sock, ${XDG_RUNTIME_DIR}/podman/podman.sock,
+# ~/.docker/run/docker.sock (Docker Desktop), /run/k3s/containerd/containerd.sock.
+_ENGINE_SOCKET_NAMES = frozenset(posixpath.basename(s) for s in _ENGINE_SOCKETS)
+
+
+def _clean_path(src: str) -> str:
+    """Resolve '.', '..', duplicate and trailing slashes (lexically)."""
+    norm = posixpath.normpath(src)
+    # POSIX normpath keeps a leading '//' — the kernel doesn't care.
+    return "/" + norm.lstrip("/") if norm.startswith("/") else norm
+
 
 def _normalize_host_path(src: str) -> str:
-    """Collapse trailing slashes and the /var/run -> /run alias."""
-    norm = src.rstrip("/") or "/"
+    """_clean_path plus the /var/run -> /run alias."""
+    norm = _clean_path(src)
     if norm == "/var/run" or norm.startswith("/var/run/"):
         norm = norm.removeprefix("/var")
     return norm
 
 
 def _engine_socket_hit(src: str) -> str | None:
-    """Return the exposed socket path if src is a socket or a parent dir of one."""
+    """Return the exposed socket if src is a socket or a parent dir of one."""
     norm = _normalize_host_path(src)
+    if posixpath.basename(norm) in _ENGINE_SOCKET_NAMES:
+        return norm
+    if not norm.startswith("/"):
+        return None
     for sock in _ENGINE_SOCKETS:
         if norm == sock or sock.startswith(norm + "/"):
             return sock
@@ -80,6 +98,11 @@ def _parse_volume(vol: object) -> tuple[str | None, str | None, str | None]:
     return None, None, None
 
 
+def _is_read_only(mode: str | None) -> bool:
+    # Short-form mode is a comma list: 'ro', 'ro,z', 'Z,ro', 'ro,rslave', …
+    return mode is not None and not {"ro", "readonly"}.isdisjoint(mode.split(","))
+
+
 def _check_volumes(name: str, svc: dict[str, Any]) -> list[Finding]:
     raw = svc.get("volumes") or []
     if not isinstance(raw, list):
@@ -89,7 +112,7 @@ def _check_volumes(name: str, svc: dict[str, Any]) -> list[Finding]:
     out: list[Finding] = []
     for vol in raw:
         src, _tgt, mode = _parse_volume(vol)
-        if not src or not src.startswith("/"):
+        if not src:
             continue
         sock = _engine_socket_hit(src)
         if sock is not None:
@@ -103,9 +126,12 @@ def _check_volumes(name: str, svc: dict[str, Any]) -> list[Finding]:
                 )
             )
             continue
+        if not src.startswith("/"):
+            continue  # named volume or relative path
+        host_path = _clean_path(src)
         for sensitive_path, (rw_sev, ro_sev) in sorted_paths:
-            if src == sensitive_path or src.startswith(sensitive_path + "/"):
-                ro = mode in {"ro", "readonly"}
+            if host_path == sensitive_path or host_path.startswith(sensitive_path + "/"):
+                ro = _is_read_only(mode)
                 sev = ro_sev if ro else rw_sev
                 qualifier = "read-only" if ro else "writable"
                 out.append(
@@ -143,8 +169,8 @@ _DEVICE_SEVERITY: tuple[tuple[str, Severity, str], ...] = (
     ("/dev/kvm", Severity.MEDIUM, "hypervisor interface exposure"),
     ("/dev/net/tun", Severity.MEDIUM, "network tunnel interface exposure"),
     ("/dev/fuse", Severity.MEDIUM, "userspace filesystem interface exposure"),
-    # Common peripherals (GPU, sound, serial, camera): low risk, common in
-    # homelab media/IoT stacks.
+    # Common peripherals (GPU, sound, serial, camera, Zigbee/Z-Wave sticks,
+    # Coral TPU, Pi GPIO): low risk, common in homelab media/IoT stacks.
     ("/dev/dri", Severity.LOW, "peripheral passthrough"),
     ("/dev/snd", Severity.LOW, "peripheral passthrough"),
     ("/dev/ttyUSB", Severity.LOW, "peripheral passthrough"),
@@ -154,6 +180,12 @@ _DEVICE_SEVERITY: tuple[tuple[str, Severity, str], ...] = (
     ("/dev/usb", Severity.LOW, "peripheral passthrough"),
     ("/dev/input", Severity.LOW, "peripheral passthrough"),
     ("/dev/hidraw", Severity.LOW, "peripheral passthrough"),
+    ("/dev/nvidia", Severity.LOW, "peripheral passthrough"),
+    ("/dev/serial/", Severity.LOW, "peripheral passthrough"),
+    ("/dev/ttyS", Severity.LOW, "peripheral passthrough"),
+    ("/dev/ttyAMA", Severity.LOW, "peripheral passthrough"),
+    ("/dev/gpiomem", Severity.LOW, "peripheral passthrough"),
+    ("/dev/apex_", Severity.LOW, "peripheral passthrough"),
 )
 
 _DEVICE_DEFAULT = (Severity.MEDIUM, "kernel surface exposure")
